@@ -103,6 +103,8 @@ const Projects = () => {
     );
   }
 
+  
+
   return (
     <Layout>
       <PageHeader title="Projects" subtitle="Manage your innovation projects and track TRL progress" />
@@ -197,6 +199,13 @@ const Projects = () => {
                   Create First Project
                 </Button>
               )}
+            </CardContent>
+          </Card>
+        ) : filteredProjects.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-12">
+              <h3 className="text-lg font-semibold mb-2">No {statusFilter !== 'all' ? statusFilter : ''} projects</h3>
+              <p className="text-muted-foreground">Try another filter or create a new project.</p>
             </CardContent>
           </Card>
         ) : (
