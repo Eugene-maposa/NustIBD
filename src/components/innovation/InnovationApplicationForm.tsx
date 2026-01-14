@@ -93,7 +93,6 @@ const InnovationApplicationForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!user) {
       toast({
         title: "Authentication Required",
@@ -104,7 +103,6 @@ const InnovationApplicationForm = () => {
     }
 
     setIsLoading(true);
-    
     try {
       const { error } = await supabase
         .from('innovation_hub_applications')
@@ -200,7 +198,7 @@ const InnovationApplicationForm = () => {
     <Card className="w-full max-w-6xl mx-auto">
       <CardHeader className="text-center">
         <div className="flex items-center justify-center gap-4 mb-4">
-          <img src="/nust-logo.png" alt="NUST Logo" className="h-20 w-20 object-contain" />
+          <img src="/logo.png" alt="NUST Logo" className="h-20 w-20 object-contain" />
           <div>
             <h2 className="text-xl font-bold">NATIONAL UNIVERSITY OF SCIENCE AND TECHNOLOGY</h2>
             <p className="text-sm text-muted-foreground">Innovation and Business Development</p>

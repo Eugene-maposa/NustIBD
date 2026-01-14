@@ -119,8 +119,8 @@ const Index = () => {
             </Link>
             
             <Link to="/blog/3" className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-              <img 
-                src="https://images.unsplash.com/photo-1551818014-7c9e6a1e8424?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1473&q=80" 
+              <img
+                src="https://th.bing.com/th/id/OIP.ChSdrUE9wK6M88eszQVbAAHaEK?w=322&h=181&c=7&r=0&o=7&pid=1.7&rm=3" 
                 alt="Extended Hours" 
                 className="w-full h-48 object-cover"
               />
