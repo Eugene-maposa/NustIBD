@@ -80,7 +80,7 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "fk_blog_posts_author"
+            foreignKeyName: "blog_posts_author_id_fkey"
             columns: ["author_id"]
             isOneToOne: false
             referencedRelation: "blog_authors"

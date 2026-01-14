@@ -30,6 +30,12 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
+      staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh
+      gcTime: 10 * 60 * 1000, // 10 minutes - garbage collection time
+      refetchOnMount: false, // Don't refetch on component mount if data exists
+    },
+    mutations: {
+      retry: 1,
     },
   },
 });
@@ -66,7 +72,7 @@ const AppRoutes = () => (
         <Dashboard />
       </ProtectedRoute>
     } />
-    <Route path="/admin" element={
+    <Route path="/ibd-portal" element={
       <ProtectedRoute>
         <Admin />
       </ProtectedRoute>

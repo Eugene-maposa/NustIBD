@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Layout from '@/components/layout/Layout';
 import PageHeader from '@/components/ui/PageHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -130,6 +131,7 @@ interface Room {
 
 const Admin = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
@@ -224,6 +226,60 @@ const Admin = () => {
     fetchData();
   }, []);
 
+  // Real-time subscriptions for admin data
+  useEffect(() => {
+    const bookingsChannel = supabase
+      .channel('admin-bookings')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bookings'
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    const projectsChannel = supabase
+      .channel('admin-projects')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'projects'
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    const applicationsChannel = supabase
+      .channel('admin-applications')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'innovation_hub_applications'
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(bookingsChannel);
+      supabase.removeChannel(projectsChannel);
+      supabase.removeChannel(applicationsChannel);
+    };
+  }, []);
+
   // Update stats when data changes
   useEffect(() => {
     updateStats();
@@ -237,6 +293,14 @@ const Admin = () => {
 
   const handleApproveApplication = async (applicationId: string) => {
     try {
+      const { data: application, error: fetchError } = await supabase
+        .from('innovation_hub_applications')
+        .select('user_id')
+        .eq('id', applicationId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
       const { error } = await supabase
         .from('innovation_hub_applications')
         .update({ 
@@ -247,9 +311,23 @@ const Admin = () => {
 
       if (error) throw error;
 
+      // Send approval notification email
+      try {
+        await supabase.functions.invoke('send-innovation-notifications', {
+          body: {
+            applicationId,
+            userId: application.user_id,
+            notificationType: 'approved',
+          },
+        });
+        console.log('Approval notification email sent');
+      } catch (emailError) {
+        console.error('Error sending notification email:', emailError);
+      }
+
       toast({
         title: "Application Approved",
-        description: "The Innovation Hub application has been approved."
+        description: "Application approved and notification sent to user."
       });
 
       fetchHubApplications();
@@ -264,8 +342,16 @@ const Admin = () => {
     }
   };
 
-  const handleRejectApplication = async (applicationId: string) => {
+  const handleRejectApplication = async (applicationId: string, reviewComments?: string) => {
     try {
+      const { data: application, error: fetchError } = await supabase
+        .from('innovation_hub_applications')
+        .select('user_id')
+        .eq('id', applicationId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
       const { error } = await supabase
         .from('innovation_hub_applications')
         .update({ status: 'rejected' })
@@ -273,9 +359,24 @@ const Admin = () => {
 
       if (error) throw error;
 
+      // Send rejection notification email
+      try {
+        await supabase.functions.invoke('send-innovation-notifications', {
+          body: {
+            applicationId,
+            userId: application.user_id,
+            notificationType: 'rejected',
+            reviewComments: reviewComments || 'Your application did not meet the requirements at this time.',
+          },
+        });
+        console.log('Rejection notification email sent');
+      } catch (emailError) {
+        console.error('Error sending notification email:', emailError);
+      }
+
       toast({
         title: "Application Rejected",
-        description: "The Innovation Hub application has been rejected."
+        description: "Application rejected and notification sent to user."
       });
 
       fetchHubApplications();
@@ -289,6 +390,55 @@ const Admin = () => {
       });
     }
   };
+
+  const handleRequestReview = async (applicationId: string, reviewComments: string) => {
+    try {
+      const { data: application, error: fetchError } = await supabase
+        .from('innovation_hub_applications')
+        .select('user_id')
+        .eq('id', applicationId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const { error } = await supabase
+        .from('innovation_hub_applications')
+        .update({ status: 'review_needed' })
+        .eq('id', applicationId);
+
+      if (error) throw error;
+
+      // Send review needed notification email
+      try {
+        await supabase.functions.invoke('send-innovation-notifications', {
+          body: {
+            applicationId,
+            userId: application.user_id,
+            notificationType: 'review_needed',
+            reviewComments,
+          },
+        });
+        console.log('Review request notification email sent');
+      } catch (emailError) {
+        console.error('Error sending notification email:', emailError);
+      }
+
+      toast({
+        title: "Review Requested",
+        description: "User has been notified about required changes."
+      });
+
+      fetchHubApplications();
+      updateStats();
+    } catch (error) {
+      console.error('Error requesting review:', error);
+      toast({
+        title: "Error",
+        description: "Failed to request review. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
   
   const checkAuth = async () => {
     try {
@@ -297,7 +447,7 @@ const Admin = () => {
       if (error || !session) {
         toast({
           title: "Access Denied",
-          description: "Please login to access the admin dashboard",
+          description: "Please login to access this portal",
           variant: "destructive",
         });
         navigate('/login');
@@ -312,10 +462,10 @@ const Admin = () => {
         .eq('role', 'admin');
 
       if (rolesError || !roles || roles.length === 0) {
-        console.error("Admin check error:", rolesError);
+        console.error("Access check error:", rolesError);
         toast({
           title: "Access Denied",
-          description: "You don't have admin permission to access this dashboard",
+          description: "You don't have permission to access this portal",
           variant: "destructive",
         });
         navigate('/dashboard');
@@ -497,13 +647,13 @@ const Admin = () => {
         .from('project_stages')
         .select('*')
         .eq('project_id', projectId)
-        .order('trl_level', { ascending: true });
+        .order('created_at', { ascending: true });
       
       if (error) throw error;
       setProjectStages(data || []);
     } catch (error) {
       console.error('Error fetching project stages:', error);
-      throw error;
+      setProjectStages([]);
     }
   };
 
@@ -1509,24 +1659,24 @@ const Admin = () => {
                                 <div className="space-y-2">
                                   <div className="flex items-center gap-2">
                                     <Target className="h-4 w-4 text-primary" />
-                                    <span className="text-sm font-medium">TRL {project.current_trl_level}/9</span>
+                                    <span className="text-sm font-medium">TRL {project.trl_level || 1}/9</span>
                                   </div>
                                   <div className="w-full bg-gray-200 rounded-full h-2">
                                     <div 
                                       className="bg-primary h-2 rounded-full transition-all duration-300"
-                                      style={{ width: `${(project.current_trl_level / 9) * 100}%` }}
+                                      style={{ width: `${((project.trl_level || 1) / 9) * 100}%` }}
                                     ></div>
                                   </div>
                                   <div className="text-xs text-muted-foreground">
-                                    {project.current_trl_level === 1 && "Basic principles observed"}
-                                    {project.current_trl_level === 2 && "Technology concept formulated"}
-                                    {project.current_trl_level === 3 && "Experimental proof of concept"}
-                                    {project.current_trl_level === 4 && "Technology validated in lab"}
-                                    {project.current_trl_level === 5 && "Technology validated in relevant environment"}
-                                    {project.current_trl_level === 6 && "Technology demonstrated in relevant environment"}
-                                    {project.current_trl_level === 7 && "System prototype demonstration in operational environment"}
-                                    {project.current_trl_level === 8 && "System complete and qualified"}
-                                    {project.current_trl_level === 9 && "Actual system proven in operational environment"}
+                                    {(project.trl_level || 1) === 1 && "Basic principles observed"}
+                                    {(project.trl_level || 1) === 2 && "Technology concept formulated"}
+                                    {(project.trl_level || 1) === 3 && "Experimental proof of concept"}
+                                    {(project.trl_level || 1) === 4 && "Technology validated in lab"}
+                                    {(project.trl_level || 1) === 5 && "Technology validated in relevant environment"}
+                                    {(project.trl_level || 1) === 6 && "Technology demonstrated in relevant environment"}
+                                    {(project.trl_level || 1) === 7 && "System prototype demonstration in operational environment"}
+                                    {(project.trl_level || 1) === 8 && "System complete and qualified"}
+                                    {(project.trl_level || 1) === 9 && "Actual system proven in operational environment"}
                                   </div>
                                 </div>
                               </TableCell>
@@ -1935,7 +2085,11 @@ const Admin = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="user">User</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="lecturer">Lecturer</SelectItem>
+                    <SelectItem value="student">Student</SelectItem>
+                    <SelectItem value="staff">Staff</SelectItem>
+                    <SelectItem value="security">Security</SelectItem>
+                    <SelectItem value="admin">Administrator</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -2580,9 +2734,22 @@ const Admin = () => {
             {selectedApplication?.status === 'pending' && (
               <>
                 <Button 
+                  variant="outline"
+                  onClick={() => {
+                    const comments = prompt('Enter review comments (what needs to be changed/added):');
+                    if (comments) {
+                      handleRequestReview(selectedApplication.id, comments);
+                      setIsApplicationDetailOpen(false);
+                    }
+                  }}
+                >
+                  Request Review
+                </Button>
+                <Button 
                   variant="destructive"
                   onClick={() => {
-                    handleRejectApplication(selectedApplication.id);
+                    const reason = prompt('Enter reason for rejection:');
+                    handleRejectApplication(selectedApplication.id, reason || undefined);
                     setIsApplicationDetailOpen(false);
                   }}
                 >
@@ -2664,12 +2831,12 @@ const Admin = () => {
                 <div className="mt-2 space-y-2">
                   <div className="flex items-center gap-2">
                     <Target className="h-4 w-4 text-primary" />
-                    <span className="font-medium">TRL {selectedProject.current_trl_level}/9</span>
+                    <span className="font-medium">TRL {selectedProject.trl_level || 1}/9</span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-3">
                     <div 
                       className="bg-primary h-3 rounded-full transition-all duration-300"
-                      style={{ width: `${(selectedProject.current_trl_level / 9) * 100}%` }}
+                      style={{ width: `${((selectedProject.trl_level || 1) / 9) * 100}%` }}
                     ></div>
                   </div>
                 </div>
@@ -2678,25 +2845,29 @@ const Admin = () => {
               <div>
                 <label className="text-sm font-medium text-muted-foreground">Project Stages</label>
                 <div className="mt-2 space-y-2">
-                  {projectStages.map((stage) => (
-                    <div key={stage.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                      <div className={`w-3 h-3 rounded-full ${stage.is_completed ? 'bg-green-500' : 'bg-gray-300'}`} />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">TRL {stage.trl_level}: {stage.stage_name}</span>
-                          {stage.is_completed && (
-                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  {projectStages.length > 0 ? (
+                    projectStages.map((stage) => (
+                      <div key={stage.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                        <div className={`w-3 h-3 rounded-full ${stage.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{stage.stage_name}</span>
+                            {stage.status === 'completed' && (
+                              <CheckCircle2 className="h-4 w-4 text-green-500" />
+                            )}
+                          </div>
+                          {stage.notes && <p className="text-sm text-muted-foreground">{stage.notes}</p>}
+                          {stage.updated_at && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Updated: {format(new Date(stage.updated_at), 'MMM dd, yyyy')}
+                            </p>
                           )}
                         </div>
-                        <p className="text-sm text-muted-foreground">{stage.description}</p>
-                        {stage.completed_at && (
-                          <p className="text-xs text-green-600 mt-1">
-                            Completed: {format(new Date(stage.completed_at), 'MMM dd, yyyy')}
-                          </p>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No stages recorded yet</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -2724,14 +2895,14 @@ const Admin = () => {
               <div className="grid grid-cols-3 gap-4">
                 <Card>
                   <CardContent className="p-4">
-                    <div className="text-2xl font-bold text-primary">{selectedProject.current_trl_level}/9</div>
+                    <div className="text-2xl font-bold text-primary">{selectedProject.trl_level || 1}/9</div>
                     <p className="text-sm text-muted-foreground">Current TRL Level</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
                     <div className="text-2xl font-bold text-green-600">
-                      {projectStages.filter(s => s.is_completed).length}
+                      {projectStages.filter(s => s.status === 'completed').length}
                     </div>
                     <p className="text-sm text-muted-foreground">Completed Stages</p>
                   </CardContent>
@@ -2739,7 +2910,7 @@ const Admin = () => {
                 <Card>
                   <CardContent className="p-4">
                     <div className="text-2xl font-bold text-orange-600">
-                      {projectStages.filter(s => !s.is_completed).length}
+                      {projectStages.filter(s => s.status !== 'completed').length}
                     </div>
                     <p className="text-sm text-muted-foreground">Remaining Stages</p>
                   </CardContent>
@@ -2749,44 +2920,41 @@ const Admin = () => {
               <div>
                 <h4 className="font-medium mb-4">TRL Progress Breakdown</h4>
                 <div className="space-y-3">
-                  {Array.from({ length: 9 }, (_, i) => {
-                    const level = i + 1;
-                    const stage = projectStages.find(s => s.trl_level === level);
-                    const isCompleted = stage?.is_completed || false;
-                    const isCurrent = level === selectedProject.current_trl_level;
-                    
-                    return (
-                      <div key={level} className={`flex items-center gap-4 p-3 rounded-lg border ${
-                        isCurrent ? 'border-primary bg-primary/5' : 
-                        isCompleted ? 'border-green-200 bg-green-50' : 
-                        'border-gray-200'
-                      }`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                          isCompleted ? 'bg-green-500 text-white' :
-                          isCurrent ? 'bg-primary text-white' :
-                          'bg-gray-200 text-gray-600'
+                  {projectStages.length > 0 ? (
+                    projectStages.map((stage) => {
+                      const isCompleted = stage.status === 'completed';
+                      
+                      return (
+                        <div key={stage.id} className={`flex items-center gap-4 p-3 rounded-lg border ${
+                          isCompleted ? 'border-green-200 bg-green-50' : 'border-gray-200'
                         }`}>
-                          {level}
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                            isCompleted ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-600'
+                          }`}>
+                            ✓
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium">{stage.stage_name}</p>
+                            {stage.notes && <p className="text-sm text-muted-foreground">{stage.notes}</p>}
+                          </div>
+                          <div className="text-right">
+                            {stage.updated_at && (
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(stage.updated_at), 'MMM dd, yyyy')}
+                              </p>
+                            )}
+                            {isCompleted && (
+                              <span className="text-xs bg-green-500 text-white px-2 py-1 rounded">
+                                Completed
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <p className="font-medium">{stage?.stage_name || `TRL Level ${level}`}</p>
-                          <p className="text-sm text-muted-foreground">{stage?.description}</p>
-                        </div>
-                        <div className="text-right">
-                          {isCompleted && stage?.completed_at && (
-                            <p className="text-xs text-green-600">
-                              {format(new Date(stage.completed_at), 'MMM dd, yyyy')}
-                            </p>
-                          )}
-                          {isCurrent && (
-                            <span className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded">
-                              Current
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No stages recorded yet</p>
+                  )}
                 </div>
               </div>
 
@@ -2795,10 +2963,10 @@ const Admin = () => {
                 <div className="w-full bg-muted rounded-full h-4">
                   <div 
                     className="bg-primary h-4 rounded-full transition-all duration-300 flex items-center justify-end pr-2"
-                    style={{ width: `${(selectedProject.current_trl_level / 9) * 100}%` }}
+                    style={{ width: `${((selectedProject.trl_level || 1) / 9) * 100}%` }}
                   >
                     <span className="text-xs text-primary-foreground font-medium">
-                      {Math.round((selectedProject.current_trl_level / 9) * 100)}%
+                      {Math.round(((selectedProject.trl_level || 1) / 9) * 100)}%
                     </span>
                   </div>
                 </div>
@@ -2845,7 +3013,7 @@ const Admin = () => {
                 <Card>
                   <CardContent className="p-4">
                     <div className="text-lg font-bold text-green-600">
-                      {projectStages.filter(s => s.is_completed).length}
+                      {projectStages.filter(s => s.status === 'completed').length}
                     </div>
                     <p className="text-sm text-muted-foreground">Milestones Hit</p>
                   </CardContent>
@@ -2853,7 +3021,7 @@ const Admin = () => {
                 <Card>
                   <CardContent className="p-4">
                     <div className="text-lg font-bold text-primary">
-                      {selectedProject.current_trl_level}
+                      {selectedProject.trl_level || 1}
                     </div>
                     <p className="text-sm text-muted-foreground">Current TRL</p>
                   </CardContent>
@@ -2881,19 +3049,18 @@ const Admin = () => {
 
                     {/* Completed stages */}
                     {projectStages
-                      .filter(stage => stage.is_completed && stage.completed_at)
-                      .sort((a, b) => new Date(a.completed_at!).getTime() - new Date(b.completed_at!).getTime())
+                      .filter(stage => stage.status === 'completed')
+                      .sort((a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime())
                       .map((stage) => (
                         <div key={stage.id} className="flex items-start gap-4">
                           <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
                             <CheckCircle2 className="w-6 h-6 text-green-600" />
                           </div>
                           <div className="flex-1 pb-4">
-                            <div className="font-medium">TRL {stage.trl_level} Completed</div>
+                            <div className="font-medium">{stage.stage_name} Completed</div>
                             <div className="text-sm text-muted-foreground">
-                              {format(new Date(stage.completed_at!), 'MMMM dd, yyyy')}
+                              {format(new Date(stage.updated_at), 'MMMM dd, yyyy')}
                             </div>
-                            <div className="text-sm mt-1">{stage.stage_name}</div>
                             {stage.notes && (
                               <div className="text-sm text-muted-foreground mt-1 italic">
                                 "{stage.notes}"
@@ -2915,7 +3082,7 @@ const Admin = () => {
                             {format(new Date(), 'MMMM dd, yyyy')}
                           </div>
                           <div className="text-sm mt-1">
-                            Working on TRL Level {selectedProject.current_trl_level}
+                            Working on TRL Level {selectedProject.trl_level || 1}
                           </div>
                         </div>
                       </div>
