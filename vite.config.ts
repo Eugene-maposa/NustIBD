@@ -5,7 +5,8 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  base: mode === "production" ? "/nust-dev-reserve/" : "/",
+  // GitHub Pages serves this project from /<repo>/
+  base: mode === "production" ? "/NustIBD/" : "/",
   server: {
     host: "::",
     port: 8080,

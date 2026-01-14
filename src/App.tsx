@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import Index from "@/pages/Index";
 import Login from "@/pages/Login";
@@ -86,7 +86,7 @@ const App = () => (
   <React.StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <HashRouter>
           <AuthProvider>
             <TooltipProvider>
               <Toaster />
@@ -94,7 +94,7 @@ const App = () => (
               <AppRoutes />
             </TooltipProvider>
           </AuthProvider>
-        </BrowserRouter>
+        </HashRouter>
       </QueryClientProvider>
     </ErrorBoundary>
   </React.StrictMode>
